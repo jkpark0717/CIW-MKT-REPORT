@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>컴인워시 마케팅팀 대시보드</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700;800;900&family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <!-- SortableJS는 GAS 환경 충돌 방지를 위해 하단에서 안전하게 로드합니다. -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: { brand: { bg: '#0a0a0a', card: '#141414', border: '#262626', red: '#E60012', lightred: '#ff3344', grey: '#a3a3a3', darkgrey: '#525252', muted: '#737373' } },
+                    fontFamily: { sans: ['"Noto Sans KR"', 'sans-serif'], mont: ['"Montserrat"', 'sans-serif'] }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: #0a0a0a; color: #ffffff; }
+        .glass-card { background: linear-gradient(145deg, rgba(20,20,20,0.9), rgba(10,10,10,0.95)); border: 1px solid #262626; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0a0a0a; }
+        ::-webkit-scrollbar-thumb { background: #525252; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #737373; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .sortable-ghost { opacity: 0.5; transform: scale(0.98); box-shadow: 0 0 15px rgba(230,0,18,0.3); border: 2px dashed #E60012; }
+        .drag-handle { cursor: grab; }
+        .drag-handle:active { cursor: grabbing; }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <!-- 이미지 확대 보기 모달 -->
+    <div id="image-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 cursor-pointer" onclick="this.classList.add('hidden')">
+        <img id="image-modal-img" class="max-w-full max-h-[90vh] rounded-lg shadow-2xl border border-brand-border" src="" alt="확대된 이미지">
+        <p class="absolute bottom-10 text-white bg-black/50 px-4 py-2 rounded-full text-sm">아무 곳이나 클릭하여 닫기</p>
+    </div>
+
+    <!-- 커스텀 프롬프트 -->
+    <div id="custom-prompt-modal" class="fixed inset-0 z-[70] hidden flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+        <div class="glass-card p-6 rounded-xl shadow-2xl w-[400px] border border-brand-border text-center">
+            <h3 id="custom-prompt-title" class="text-lg font-bold text-white mb-4">입력</h3>
+            <input type="text" id="custom-prompt-input" class="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-3 text-white mb-6 focus:outline-none focus:border-brand-red text-center font-bold" onkeypress="if(event.key === 'Enter') document.getElementById('custom-prompt-confirm').click()">
+            <div class="flex justify-center gap-3">
+                <button onclick="window.closeCustomPrompt()" class="bg-brand-card border border-brand-border text-brand-grey px-6 py-2 rounded-lg hover:text-white transition-colors">취소</button>
+                <button id="custom-prompt-confirm" class="bg-brand-red text-white px-6 py-2 rounded-lg font-bold hover:bg-brand-lightred transition-colors shadow-lg">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 대시보드 메인 -->
+    <div id="dashboard">
+        <!-- 헤더 -->
+        <header class="sticky top-0 z-40 bg-brand-bg/95 backdrop-blur-md border-b border-brand-border py-4 px-6 md:px-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div class="flex items-center gap-4">
+                <div class="bg-brand-red text-white p-2.5 rounded-lg"><i class="fa-solid fa-car-tunnel text-xl"></i></div>
+                <div>
+                    <h1 class="text-xl font-bold font-mont tracking-tight flex items-center gap-2">COME IN WASH <span class="text-sm font-sans font-medium text-brand-grey bg-brand-card px-2 py-0.5 rounded border border-brand-border">Marketing</span></h1>
+                    <!-- 자바스크립트가 완전히 죽어도 기본값으로 9월이 뜨도록 하드코딩 백업 -->
+                    <p class="text-xs text-brand-grey mt-0.5 font-bold" id="current-date-display">2026년 9월 1주차 보고</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3 flex-wrap">
+                <span class="text-sm text-brand-grey mr-2"><i class="fa-solid fa-user-circle mr-1.5"></i><span id="display-user-name">관리자</span></span>
+                <button onclick="document.getElementById('upload-master-db').click()" class="bg-brand-card hover:bg-brand-border border border-brand-border text-brand-grey text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2" title="엑셀 마스터 DB 업로드 (앱/매출)">
+                    <i class="fa-solid fa-database text-brand-lightred"></i> 마스터 DB 설정
+                </button>
+                <input type="file" id="upload-master-db" accept=".xlsx, .xls, .csv" class="hidden" onchange="window.processMasterExcel(event)">
+                <button onclick="window.openHistoryModal()" class="bg-brand-card hover:bg-brand-border border border-brand-border text-brand-grey text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+                    <i class="fa-solid fa-folder-open text-blue-400"></i> 과거 보고서
+                </button>
+                <button onclick="window.saveWeeklyReport()" class="bg-brand-card hover:bg-brand-border border border-brand-border text-white font-bold text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+                    <i class="fa-solid fa-cloud-arrow-up text-brand-lightred"></i> 현재 저장
+                </button>
+                <button onclick="window.print()" class="bg-[#2b579a] hover:bg-[#3e6db5] text-white text-sm px-5 py-2 rounded-lg transition-colors font-medium flex items-center gap-2 shadow-lg">
+                    <i class="fa-solid fa-file-pdf"></i> PDF 저장
+                </button>
+            </div>
+        </header>
+
+        <main class="p-6 md:p-10 max-w-[1400px] mx-auto">
+            <!-- 탭 영역 -->
+            <div id="tab-container" class="flex items-center gap-1 mb-8 border-b border-brand-border overflow-x-auto custom-scrollbar pb-1">
+                <button class="bg-brand-card text-white px-6 py-3 rounded-t-xl font-bold border-t border-l border-r border-brand-border flex items-center gap-2 whitespace-nowrap">
+                    <i class="fa-solid fa-chart-line text-brand-red"></i> 종합 성과 대시보드
+                </button>
+                <button id="add-tab-btn" onclick="window.addNewTab()" class="bg-transparent text-brand-grey hover:text-white hover:bg-brand-card/50 px-6 py-3 rounded-t-xl font-medium transition-colors flex items-center gap-2 whitespace-nowrap">
+                    <i class="fa-solid fa-plus"></i> 신규 탭 추가
+                </button>
+            </div>
+
+            <!-- 성과 지표 영역 -->
+            <section class="space-y-10">
+                <!-- 월간 매출 -->
+                <div>
+                    <div class="flex items-center gap-3 mb-4 border-l-4 border-brand-darkgrey pl-3">
+                        <h2 class="text-lg font-bold text-white">월 누적 매출 지표</h2>
+                        <button onclick="window.triggerUpload('monthly')" class="bg-[#107c41] hover:bg-[#185c37] text-white text-xs px-2.5 py-1 rounded transition-colors flex items-center gap-1 ml-2">
+                            <i class="fa-solid fa-file-excel"></i> 월간 매출 업로드
+                        </button>
+                        <input type="file" id="upload-monthly" accept=".xlsx, .xls, .csv" class="hidden" onchange="window.processExcel(event, 'monthly')">
+                    </div>
+                    <div id="monthly-grid" class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div class="glass-card rounded-xl p-5 shadow-lg drag-handle">
+                            <h3 class="text-brand-grey text-sm font-medium mb-1">월 누적 총 매출</h3>
+                            <div class="text-3xl font-mont font-black text-white mb-2"><span id="val-monthly-total">0</span><span class="text-lg font-sans font-medium text-brand-grey ml-1">만원</span></div>
+                        </div>
+                        <div class="glass-card rounded-xl p-5 shadow-lg drag-handle">
+                            <h3 class="text-brand-grey text-sm font-medium mb-1">카드 결제 매출</h3>
+                            <div class="text-xl font-mont font-bold text-white mb-2"><span id="val-monthly-card">0</span><span class="text-sm font-sans font-medium text-brand-grey ml-1">만원</span></div>
+                            <div class="w-full bg-brand-bg rounded-full h-1.5 mb-1 mt-3"><div id="bar-monthly-card" class="bg-brand-grey h-1.5 rounded-full transition-all duration-1000" style="width: 0%"></div></div>
+                            <div class="text-[11px] text-brand-grey flex justify-between"><span>전체 비중</span><span id="pct-monthly-card" class="text-white font-bold">0.0%</span></div>
+                        </div>
+                        <div class="glass-card rounded-xl p-5 border-brand-red/50 shadow-[0_0_20px_rgba(230,0,18,0.15)] relative overflow-hidden bg-brand-red/5 drag-handle">
+                            <div class="absolute right-0 top-0 p-4 opacity-10"><i class="fa-solid fa-mobile-screen text-4xl text-brand-red"></i></div>
+                            <h3 class="text-brand-grey text-sm font-medium mb-1 flex justify-between items-center">APP 결제 매출 <span class="text-[10px] bg-brand-red text-white px-1.5 py-0.5 rounded shadow-sm">핵심 KPI</span></h3>
+                            <div class="text-xl font-mont font-bold text-brand-lightred mb-2"><span id="val-monthly-app">0</span><span class="text-sm font-sans font-medium text-brand-grey ml-1">만원</span></div>
+                            <div class="w-full bg-brand-bg rounded-full h-1.5 mb-1 mt-3"><div id="bar-monthly-app" class="bg-brand-red h-1.5 rounded-full shadow-[0_0_8px_#E60012] transition-all duration-1000" style="width: 0%"></div></div>
+                            <div class="text-[11px] text-brand-grey flex justify-between"><span>전체 비중</span><span id="pct-monthly-app" class="text-brand-lightred font-bold">0.0%</span></div>
+                        </div>
+                        <div class="glass-card rounded-xl p-5 shadow-lg drag-handle">
+                            <h3 class="text-brand-grey text-sm font-medium mb-1">기타 (현금/상품권)</h3>
+                            <div class="text-xl font-mont font-bold text-white mb-2"><span id="val-monthly-etc">0</span><span class="text-sm font-sans font-medium text-brand-grey ml-1">만원</span></div>
+                            <div class="w-full bg-brand-bg rounded-full h-1.5 mb-1 mt-3"><div id="bar-monthly-etc" class="bg-brand-darkgrey h-1.5 rounded-full transition-all duration-1000" style="width: 0%"></div></div>
+                            <div class="text-[11px] text-brand-grey flex justify-between"><span>전체 비중</span><span id="pct-monthly-etc" class="text-white font-bold">0.0%</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 주간 매출 -->
+                <div>
+                    <div class="flex items-center gap-3 mb-4 border-l-4 border-brand-red pl-3">
+                        <h2 class="text-lg font-bold text-white">주간 누적 매출 지표</h2>
+                        <button onclick="window.triggerUpload('weekly')" class="bg-[#107c41] hover:bg-[#185c37] text-white text-xs px-2.5 py-1 rounded transition-colors flex items-center gap-1 ml-2 shadow-lg">
+                            <i class="fa-solid fa-file-excel"></i> 주간 매출 업로드
+                        </button>
+                        <input type="file" id="upload-weekly" accept=".xlsx, .xls, .csv" class="hidden" onchange="window.processExcel(event, 'weekly')">
+                    </div>
+                    <div id="weekly-grid" class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div class="glass-card rounded-xl p-5 shadow-lg drag-handle">
+                            <h3 class="text-brand-grey text-sm font-medium mb-1">이번주 총 매출</h3>
+                            <div class="text-3xl font-mont font-black text-white mb-2"><span id="val-weekly-total">0</span><span class="text-lg font-sans font-medium text-brand-grey ml-1">만원</span></div>
+                        </div>
+                        <div class="glass-card rounded-xl p-5 shadow-lg drag-handle">
+                            <h3 class="text-brand-grey text-sm font-medium mb-1">카드 결제 매출</h3>
+                            <div class="text-xl font-mont font-bold text-white mb-2"><span id="val-weekly-card">0</span><span class="text-sm font-sans font-medium text-brand-grey ml-1">만원</span></div>
+                            <div class="w-full bg-brand-bg rounded-full h-1.5 mb-1 mt-3"><div id="bar-weekly-card" class="bg-brand-grey h-1.5 rounded-full transition-all duration-1000" style="width: 0%"></div></div>
+                            <div class="text-[11px] text-brand-grey flex justify-between"><span>전체 비중</span><span id="pct-weekly-card" class="text-white font-bold">0.0%</span></div>
+                        </div>
+                        <div class="glass-card rounded-xl p-5 border-brand-red/50 shadow-[0_0_20px_rgba(230,0,18,0.15)] relative overflow-hidden bg-brand-red/5 drag-handle">
+                            <div class="absolute right-0 top-0 p-4 opacity-10"><i class="fa-solid fa-mobile-screen text-4xl text-brand-red"></i></div>
+                            <h3 class="text-brand-grey text-sm font-medium mb-1 flex justify-between items-center">APP 결제 매출 <span class="text-[10px] bg-brand-red text-white px-1.5 py-0.5 rounded shadow-sm">주간 KPI</span></h3>
+                            <div class="text-xl font-mont font-bold text-brand-lightred mb-2"><span id="val-weekly-app">0</span><span class="text-sm font-sans font-medium text-brand-grey ml-1">만원</span></div>
+                            <div class="w-full bg-brand-bg rounded-full h-1.5 mb-1 mt-3"><div id="bar-weekly-app" class="bg-brand-red h-1.5 rounded-full shadow-[0_0_8px_#E60012] transition-all duration-1000" style="width: 0%"></div></div>
+                            <div class="text-[11px] text-brand-grey flex justify-between"><span>전체 비중</span><span id="pct-weekly-app" class="text-brand-lightred font-bold">0.0%</span></div>
+                        </div>
+                        <div class="glass-card rounded-xl p-5 shadow-lg drag-handle">
+                            <h3 class="text-brand-grey text-sm font-medium mb-1">기타 (현금/상품권)</h3>
+                            <div class="text-xl font-mont font-bold text-white mb-2"><span id="val-weekly-etc">0</span><span class="text-sm font-sans font-medium text-brand-grey ml-1">만원</span></div>
+                            <div class="w-full bg-brand-bg rounded-full h-1.5 mb-1 mt-3"><div id="bar-weekly-etc" class="bg-brand-darkgrey h-1.5 rounded-full transition-all duration-1000" style="width: 0%"></div></div>
+                            <div class="text-[11px] text-brand-grey flex justify-between"><span>전체 비중</span><span id="pct-weekly-etc" class="text-white font-bold">0.0%</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 앱 지표 (9월로 고정) -->
+                <div>
+                    <div class="flex items-center gap-3 mb-4 border-l-4 border-brand-darkgrey pl-3">
+                        <h2 class="text-lg font-bold text-white">APP & 멤버십 운영 현황 (9월)</h2>
+                        <button onclick="window.openAppInputModal()" class="bg-brand-red hover:bg-brand-lightred text-white text-xs px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ml-2 shadow-lg">
+                            <i class="fa-solid fa-keyboard"></i> 지표 직접 입력
+                        </button>
+                    </div>
+                    <div id="app-grid" class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div class="glass-card rounded-xl p-5 relative overflow-hidden flex flex-col justify-between drag-handle">
+                            <div class="absolute top-0 right-0 p-4 opacity-10"><i class="fa-solid fa-mobile-screen text-6xl text-white"></i></div>
+                            <div>
+                                <h3 class="text-brand-grey text-xs md:text-sm font-medium mb-1">앱(App) 실사용자 (MAU)</h3>
+                                <div class="text-2xl md:text-3xl font-mont font-black text-white mb-1"><span id="val-app-mau">49,000</span><span class="text-base font-sans font-medium text-brand-grey ml-1">명</span></div>
+                            </div>
+                            <div class="mt-auto pt-3">
+                                <div class="text-[11px] text-brand-grey bg-brand-border/60 border border-brand-darkgrey p-2 rounded flex items-center justify-between">
+                                    <span><i class="fa-solid fa-arrow-trend-up text-brand-red mr-1"></i> 전월 대비 상승</span> 
+                                    <span id="diff-mau-mom" class="text-brand-lightred font-bold block mt-0.5">+4,100명</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="glass-card rounded-xl p-5 relative overflow-hidden flex flex-col justify-between border-brand-red/50 bg-brand-red/5 shadow-[0_0_20px_rgba(230,0,18,0.15)] drag-handle">
+                            <div class="absolute top-0 right-0 p-4 opacity-10"><i class="fa-solid fa-chart-pie text-6xl text-brand-red"></i></div>
+                            <div>
+                                <h3 class="text-brand-grey text-xs md:text-sm font-medium mb-1 flex justify-between items-center">앱(App) 사용률 <span class="text-[10px] bg-brand-red text-white px-1.5 py-0.5 rounded shadow-sm">핵심 KPI</span></h3>
+                                <div class="text-2xl md:text-3xl font-mont font-black text-brand-lightred mb-2"><span id="val-app-usage-rate">14.4</span><span class="text-base font-sans font-medium text-brand-grey ml-1">%</span></div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 mt-auto pt-3">
+                                <div class="text-[10px] md:text-[11px] text-brand-grey bg-brand-border/60 border border-brand-darkgrey p-1.5 rounded text-center">
+                                    전월 대비 <span id="diff-usage-mom" class="text-brand-lightred font-bold block mt-0.5">▲ 1.1%p</span>
+                                </div>
+                                <div class="text-[10px] md:text-[11px] text-brand-grey bg-brand-border/60 border border-brand-darkgrey p-1.5 rounded text-center">
+                                    전년 대비 <span id="diff-usage-yoy" class="text-brand-lightred font-bold block mt-0.5">▲ 2.3%p</span>
+                                </div>
+                            </div>
+                            <div class="text-[10px] text-brand-grey mt-2 text-right opacity-80">(MAU ÷ 총 누적회원)</div>
+                        </div>
+                        <div class="glass-card rounded-xl p-5 relative overflow-hidden flex flex-col justify-between drag-handle">
+                            <div class="absolute top-0 right-0 p-4 opacity-10"><i class="fa-solid fa-users text-6xl text-white"></i></div>
+                            <div>
+                                <h3 class="text-brand-grey text-xs md:text-sm font-medium mb-1">총 누적 회원 수</h3>
+                                <div class="text-2xl md:text-3xl font-mont font-bold text-white mb-2"><span id="val-app-users">388,575</span><span class="text-base font-sans font-medium text-brand-grey ml-1">명</span></div>
+                            </div>
+                            <div class="text-[10px] md:text-[11px] text-brand-grey flex flex-col md:flex-row md:items-center bg-brand-border/60 border border-brand-darkgrey p-2 rounded mt-auto w-full gap-1">
+                                <span><i class="fa-solid fa-user-plus text-brand-red mr-1"></i> 전월 대비 신규 유입</span> 
+                                <span id="diff-app-users" class="text-brand-lightred font-bold md:ml-auto">+11,500명</span>
+                            </div>
+                        </div>
+                        <div class="glass-card rounded-xl p-5 relative overflow-hidden flex flex-col justify-between drag-handle">
+                            <div class="absolute top-0 right-0 p-4 opacity-10"><i class="fa-solid fa-envelope-circle-check text-6xl text-white"></i></div>
+                            <div>
+                                <h3 class="text-brand-grey text-xs md:text-sm font-medium mb-1">마케팅 수신 동의 회원</h3>
+                                <div class="text-2xl md:text-3xl font-mont font-bold text-brand-grey mb-2"><span id="val-app-marketing">70,030</span><span class="text-base font-sans font-medium ml-1">명</span></div>
+                            </div>
+                            <div class="text-[10px] md:text-[11px] text-brand-grey flex flex-col md:flex-row md:items-center justify-between bg-brand-border/60 p-2 rounded mt-auto border border-brand-darkgrey gap-1">
+                                <span>전체 회원 대비 동의율</span> 
+                                <span id="pct-app-marketing" class="font-bold text-white text-sm">18.0%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 주간 업무 현황 -->
+            <section class="mt-10 mb-10">
+                <h2 class="text-xl font-bold text-white mb-5 border-l-4 border-brand-red pl-3">주간 프로젝트 업무 현황</h2>
+                <div class="flex flex-col gap-8">
+                    <!-- TECH -->
+                    <div class="bg-brand-card rounded-xl p-7 border border-brand-border flex flex-col shadow-lg">
+                        <div class="flex items-center gap-3 mb-6 pb-4 border-b border-brand-border">
+                            <div class="w-10 h-10 rounded-lg bg-brand-darkgrey/30 flex items-center justify-center text-white text-lg"><i class="fa-solid fa-code"></i></div>
+                            <h3 class="text-xl font-bold text-white">TECH 파트</h3>
+                            <span class="text-xs text-brand-muted ml-auto">키오스크 / APP / 시스템</span>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 flex-1">
+                            <div class="flex flex-col h-full">
+                                <h4 class="text-sm font-medium text-brand-grey mb-3"><i class="fa-solid fa-check-circle text-brand-darkgrey mr-1.5"></i>전주 완료 (Done)</h4>
+                                <ul id="tech-done-list" class="space-y-3 mb-4 flex-1 overflow-y-auto max-h-80 pr-2"></ul>
+                                <div id="form-tech-done"></div>
+                            </div>
+                            <div class="flex flex-col h-full border-t md:border-t-0 md:border-l border-brand-border/50 pt-6 md:pt-0 md:pl-8">
+                                <h4 class="text-sm font-medium text-brand-red mb-3"><i class="fa-solid fa-spinner mr-1.5"></i>차주 예정 (To-Do)</h4>
+                                <ul id="tech-todo-list" class="space-y-3 mb-4 flex-1 overflow-y-auto max-h-80 pr-2"></ul>
+                                <div id="form-tech-todo"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- MKT -->
+                    <div class="bg-brand-card rounded-xl p-7 border border-brand-border flex flex-col shadow-lg">
+                        <div class="flex items-center gap-3 mb-6 pb-4 border-b border-brand-border">
+                            <div class="w-10 h-10 rounded-lg bg-brand-red/20 flex items-center justify-center text-brand-red text-lg"><i class="fa-solid fa-bullhorn"></i></div>
+                            <h3 class="text-xl font-bold text-white">MARKETING 파트</h3>
+                            <span class="text-xs text-brand-muted ml-auto">프로모션 / 제휴 / 마케팅 기획</span>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 flex-1">
+                            <div class="flex flex-col h-full">
+                                <h4 class="text-sm font-medium text-brand-grey mb-3"><i class="fa-solid fa-check-circle text-brand-darkgrey mr-1.5"></i>전주 완료 (Done)</h4>
+                                <ul id="mkt-done-list" class="space-y-3 mb-4 flex-1 overflow-y-auto max-h-80 pr-2"></ul>
+                                <div id="form-mkt-done"></div>
+                            </div>
+                            <div class="flex flex-col h-full border-t md:border-t-0 md:border-l border-brand-border/50 pt-6 md:pt-0 md:pl-8">
+                                <h4 class="text-sm font-medium text-brand-red mb-3"><i class="fa-solid fa-spinner mr-1.5"></i>차주 예정 (To-Do)</h4>
+                                <ul id="mkt-todo-list" class="space-y-3 mb-4 flex-1 overflow-y-auto max-h-80 pr-2"></ul>
+                                <div id="form-mkt-todo"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- DESIGN -->
+                    <div class="bg-brand-card rounded-xl p-7 border border-brand-border flex flex-col shadow-lg">
+                        <div class="flex items-center gap-3 mb-6 pb-4 border-b border-brand-border">
+                            <div class="w-10 h-10 rounded-lg bg-pink-500/20 flex items-center justify-center text-pink-500 text-lg"><i class="fa-solid fa-palette"></i></div>
+                            <h3 class="text-xl font-bold text-white">DESIGN 파트</h3>
+                            <span class="text-xs text-brand-muted ml-auto">온/오프라인 시안 제작</span>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 flex-1">
+                            <div class="flex flex-col h-full">
+                                <h4 class="text-sm font-medium text-brand-grey mb-3"><i class="fa-solid fa-check-circle text-brand-darkgrey mr-1.5"></i>전주 완료 (Done)</h4>
+                                <ul id="des-done-list" class="space-y-3 mb-4 flex-1 overflow-y-auto max-h-80 pr-2"></ul>
+                                <div id="form-des-done"></div>
+                            </div>
+                            <div class="flex flex-col h-full border-t md:border-t-0 md:border-l border-brand-border/50 pt-6 md:pt-0 md:pl-8">
+                                <h4 class="text-sm font-medium text-brand-red mb-3"><i class="fa-solid fa-spinner mr-1.5"></i>차주 예정 (To-Do)</h4>
+                                <ul id="des-todo-list" class="space-y-3 mb-4 flex-1 overflow-y-auto max-h-80 pr-2"></ul>
+                                <div id="form-des-todo"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- CHANNELS -->
+                    <div class="bg-brand-card rounded-xl p-7 border border-brand-border flex flex-col shadow-lg">
+                        <div class="flex items-center gap-3 mb-6 pb-4 border-b border-brand-border">
+                            <div class="w-10 h-10 rounded-lg bg-brand-grey/20 flex items-center justify-center text-brand-grey text-lg"><i class="fa-solid fa-share-nodes"></i></div>
+                            <h3 class="text-xl font-bold text-white">CHANNELS 파트</h3>
+                            <span class="text-xs text-brand-muted ml-auto">홈페이지 / SNS / 유튜브</span>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 flex-1">
+                            <div class="flex flex-col h-full">
+                                <h4 class="text-sm font-medium text-brand-grey mb-3"><i class="fa-solid fa-check-circle text-brand-darkgrey mr-1.5"></i>전주 완료 (Done)</h4>
+                                <ul id="ch-done-list" class="space-y-3 mb-4 flex-1 overflow-y-auto max-h-80 pr-2"></ul>
+                                <div id="form-ch-done"></div>
+                            </div>
+                            <div class="flex flex-col h-full border-t md:border-t-0 md:border-l border-brand-border/50 pt-6 md:pt-0 md:pl-8">
+                                <h4 class="text-sm font-medium text-brand-red mb-3"><i class="fa-solid fa-spinner mr-1.5"></i>차주 예정 (To-Do)</h4>
+                                <ul id="ch-todo-list" class="space-y-3 mb-4 flex-1 overflow-y-auto max-h-80 pr-2"></ul>
+                                <div id="form-ch-todo"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 기타 -->
+                    <div class="bg-brand-card rounded-xl p-7 border border-brand-border flex flex-col shadow-lg">
+                        <div class="flex items-center gap-3 mb-6 pb-4 border-b border-brand-border">
+                            <div class="w-10 h-10 rounded-lg bg-gray-500/20 flex items-center justify-center text-gray-400 text-lg"><i class="fa-solid fa-box-archive"></i></div>
+                            <h3 class="text-xl font-bold text-white">기타 업무 파트</h3>
+                            <span class="text-xs text-brand-muted ml-auto">공통 / 행정 / 기타 지원</span>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 flex-1">
+                            <div class="flex flex-col h-full">
+                                <h4 class="text-sm font-medium text-brand-grey mb-3"><i class="fa-solid fa-check-circle text-brand-darkgrey mr-1.5"></i>전주 완료 (Done)</h4>
+                                <ul id="etc-done-list" class="space-y-3 mb-4 flex-1 overflow-y-auto max-h-80 pr-2"></ul>
+                                <div id="form-etc-done"></div>
+                            </div>
+                            <div class="flex flex-col h-full border-t md:border-t-0 md:border-l border-brand-border/50 pt-6 md:pt-0 md:pl-8">
+                                <h4 class="text-sm font-medium text-brand-red mb-3"><i class="fa-solid fa-spinner mr-1.5"></i>차주 예정 (To-Do)</h4>
+                                <ul id="etc-todo-list" class="space-y-3 mb-4 flex-1 overflow-y-auto max-h-80 pr-2"></ul>
+                                <div id="form-etc-todo"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- 팝업 모달들 -->
+    <div id="app-input-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+        <div class="glass-card p-8 rounded-2xl shadow-2xl w-[500px] border border-brand-border relative">
+            <button onclick="window.closeAppInputModal()" class="absolute top-4 right-4 text-brand-grey hover:text-white transition-colors"><i class="fa-solid fa-xmark text-xl"></i></button>
+            <h2 class="text-xl font-bold mb-6 flex items-center gap-2"><i class="fa-solid fa-mobile-screen text-brand-red"></i> APP 지표 업데이트</h2>
+            <div class="space-y-5 text-left">
+                <div>
+                    <label class="block text-xs text-brand-grey mb-1 ml-1"><i class="fa-solid fa-calendar-check mr-1"></i> 기준월 선택 (과거 데이터 자동 매칭)</label>
+                    <input type="month" id="app-input-month" class="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-brand-red font-bold" onchange="window.autofillFromMasterDB()">
+                </div>
+                <div>
+                    <label class="block text-xs text-brand-grey mb-1 ml-1">이번 달 실사용자 (MAU)</label>
+                    <input type="number" id="app-input-mau" placeholder="예: 49000" class="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-brand-red font-bold">
+                </div>
+                <div class="bg-brand-bg/50 p-3 rounded-lg border border-brand-border">
+                    <label class="block text-xs text-brand-red font-bold mb-2 ml-1"><i class="fa-solid fa-chart-pie mr-1"></i> 앱 사용률 비교 입력 (%)</label>
+                    <div class="grid grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-[10px] text-brand-grey mb-1">이번 달</label>
+                            <input type="number" step="0.1" id="app-input-usage" placeholder="예: 14.4" class="w-full bg-brand-card border border-brand-border rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-red text-sm font-bold">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-brand-grey mb-1">전월 (MoM)</label>
+                            <input type="number" step="0.1" id="app-input-usage-mom" placeholder="예: 13.3" class="w-full bg-brand-card border border-brand-border rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-red text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-brand-grey mb-1">전년 (YoY)</label>
+                            <input type="number" step="0.1" id="app-input-usage-yoy" placeholder="예: 12.1" class="w-full bg-brand-card border border-brand-border rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-red text-sm">
+                        </div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs text-brand-grey mb-1 ml-1">총 누적 회원 수</label>
+                        <input type="number" id="app-input-users" placeholder="예: 388575" class="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-brand-red">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-brand-grey mb-1 ml-1">마케팅 수신 동의</label>
+                        <input type="number" id="app-input-marketing" placeholder="예: 70030" class="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-brand-red">
+                    </div>
+                </div>
+                <button onclick="window.saveAppData()" class="w-full bg-brand-red hover:bg-brand-lightred text-white font-bold rounded-lg px-4 py-3 mt-4 transition-colors shadow-lg text-lg">DB 누적 및 자동 계산</button>
+            </div>
+        </div>
+    </div>
+    <div id="history-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+        <div class="glass-card p-8 rounded-2xl shadow-2xl w-[500px] border border-brand-border relative max-h-[80vh] flex flex-col">
+            <button onclick="window.closeHistoryModal()" class="absolute top-4 right-4 text-brand-grey hover:text-white transition-colors"><i class="fa-solid fa-xmark text-xl"></i></button>
+            <h2 class="text-xl font-bold mb-6 flex items-center gap-2"><i class="fa-solid fa-clock-rotate-left text-brand-red"></i> 과거 주간보고서 보관함</h2>
+            <div class="overflow-y-auto custom-scrollbar flex-1 pr-2"><ul id="history-list" class="space-y-3"></ul></div>
+        </div>
+    </div>
+    <div id="loading-overlay" class="fixed inset-0 z-[60] hidden flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-brand-red mb-4"></div>
+        <p class="text-white font-bold animate-pulse text-lg">데이터를 처리 중입니다...</p>
+    </div>
+    <div id="toast" class="fixed bottom-5 right-5 transform translate-y-20 opacity-0 transition-all duration-300 bg-brand-card border border-brand-border text-white px-6 py-4 rounded-lg shadow-2xl z-50 flex items-center gap-3">
+        <i class="fa-solid fa-circle-check text-brand-red text-xl"></i><span id="toast-msg" class="font-medium">알림 메시지</span>
+    </div>
+
+    <!-- 순수 자바스크립트 엔진 (어떤 환경에서도 반드시 실행되도록 재설계) -->
+    <script>
+        // 전역 변수
+        window.currentUser = '관리자';
+        window.masterAppDB = {};
+        window.masterSalesDB = {};
+        window.appDB = { baseline: { mau: 44900, users: 377075, marketing: 65000 } };
+        window.localHistoryDB = [];
+
+        // 유틸리티 함수들 (Toast, Prompt, Modal)
+        window.showToast = function(msg) {
+            try {
+                const toast = document.getElementById('toast'); 
+                document.getElementById('toast-msg').innerText = msg;
+                toast.classList.remove('translate-y-20', 'opacity-0');
+                setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 3000);
+            } catch(e) { console.warn(e); }
+        };
+
+        window.showCustomPrompt = function(title, defaultValue, callback) {
+            try {
+                document.getElementById('custom-prompt-title').innerText = title;
+                const input = document.getElementById('custom-prompt-input');
+                input.value = defaultValue || '';
+                document.getElementById('custom-prompt-modal').classList.remove('hidden');
+                input.focus();
+                document.getElementById('custom-prompt-confirm').onclick = () => {
+                    const val = input.value.trim();
+                    document.getElementById('custom-prompt-modal').classList.add('hidden');
+                    if(val) callback(val);
+                };
+            } catch(e) { console.warn(e); }
+        };
+
+        window.closeCustomPrompt = function() { document.getElementById('custom-prompt-modal').classList.add('hidden'); };
+        window.openAppInputModal = function() { document.getElementById('app-input-modal').classList.remove('hidden'); };
+        window.closeAppInputModal = function() { document.getElementById('app-input-modal').classList.add('hidden'); };
+        
+        window.showImageModal = function(src) {
+            document.getElementById('image-modal-img').src = src;
+            document.getElementById('image-modal').classList.remove('hidden');
+        };
+
+        // 1. 하단 폼 강제 생성 함수 (에러 독립 격리)
+        window.getFormHtml = function(part, status) {
+            const phTitle = '업무 제목 입력 후 Enter';
+            const phDetail = '상세 내용 (Enter로 줄바꿈 시 자동 순번)';
+            const isTodo = status === 'todo';
+            const focusColor = isTodo ? 'focus-within:border-brand-red' : 'focus-within:border-brand-grey';
+            const btnColor = isTodo ? 'text-brand-red hover:text-brand-lightred' : 'text-brand-grey hover:text-white';
+            return `
+                <div class="flex flex-col bg-brand-bg/50 border border-brand-border rounded-lg mt-auto ${focusColor} transition-colors overflow-hidden">
+                    <input type="text" id="${part}-${status}-title" placeholder="${phTitle}" class="w-full bg-transparent px-4 py-2 text-sm text-white font-bold focus:outline-none border-b border-brand-border/50" onkeypress="if(event.key==='Enter'){event.preventDefault(); document.getElementById('${part}-${status}-detail').focus();}">
+                    <textarea id="${part}-${status}-detail" placeholder="${phDetail}" rows="2" class="w-full bg-transparent px-4 py-2 text-[13px] text-brand-grey focus:outline-none resize-none custom-scrollbar" onkeypress="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); window.addTask('${part}', '${status}');}"></textarea>
+                    <div class="flex justify-between items-center bg-brand-card/80 border-t border-brand-border/50 px-3 py-2">
+                        <div class="flex items-center gap-3">
+                            <button onclick="document.getElementById('${part}-${status}-img').click()" class="bg-brand-darkgrey/30 hover:bg-brand-darkgrey/60 border border-brand-border text-white px-3 py-1.5 rounded text-xs flex items-center gap-1.5 transition-colors shadow-sm" title="이미지 첨부하기">
+                                <i class="fa-solid fa-camera text-brand-red"></i> 사진 첨부
+                            </button>
+                            <input type="file" id="${part}-${status}-img" accept="image/*" class="hidden" onchange="window.previewImage(this, '${part}-${status}')">
+                            <img id="${part}-${status}-preview" class="h-8 w-8 rounded object-cover hidden cursor-pointer border-2 border-brand-red shadow-md" onclick="this.src=''; this.classList.add('hidden'); document.getElementById('${part}-${status}-img').value='';" title="클릭 시 첨부 취소 (삭제)">
+                        </div>
+                        <button onclick="window.addTask('${part}', '${status}')" class="bg-brand-card border border-brand-border ${btnColor} px-4 py-1.5 rounded text-sm font-bold transition-colors shadow-sm">등록</button>
+                    </div>
+                </div>
+            `;
+        };
+
+        window.renderAllForms = function() {
+            try {
+                const forms = [
+                    { part: 'tech', status: 'done' }, { part: 'tech', status: 'todo' },
+                    { part: 'mkt', status: 'done' }, { part: 'mkt', status: 'todo' },
+                    { part: 'des', status: 'done' }, { part: 'des', status: 'todo' },
+                    { part: 'ch', status: 'done' }, { part: 'ch', status: 'todo' },
+                    { part: 'etc', status: 'done' }, { part: 'etc', status: 'todo' }
+                ];
+                forms.forEach(f => {
+                    const el = document.getElementById(`form-${f.part}-${f.status}`);
+                    if (el) el.innerHTML = window.getFormHtml(f.part, f.status);
+                });
+            } catch(e) { console.warn("Form rendering error:", e); }
+        };
+
+        // 2. 태스크 렌더링 함수
+        window.renderTask = function(part, status, task) {
+            try {
+                const ul = document.getElementById(`${part}-${status}-list`);
+                if(!ul) return;
+                const li = document.createElement('li');
+                li.className = "bg-brand-bg rounded-lg p-4 text-sm border border-brand-border/50 shadow-sm flex flex-col transition-all duration-200";
+                const circledNumbers = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
+                let detailsHtml = task.details && task.details.length > 0 ? `<ul class="mt-2 space-y-1.5">` + task.details.map((desc, idx) => `<li class="text-[12px] text-brand-grey flex items-start gap-1.5"><span class="text-brand-darkgrey mt-[1px] font-bold">${circledNumbers[idx]||'-'}</span><span class="detail-text">${desc}</span></li>`).join('') + `</ul>` : '';
+                let imageHtml = task.image ? `<img src="${task.image}" class="mt-3 rounded-lg w-full max-h-48 object-cover border border-brand-border cursor-pointer hover:opacity-80 transition-opacity task-image" onclick="window.showImageModal(this.src)">` : '';
+
+                li.innerHTML = `
+                    <div class="flex items-start gap-2">
+                        <div class="mt-1 text-brand-red"><i class="fa-solid fa-play text-[8px]"></i></div>
+                        <div class="flex-1 text-white font-bold leading-tight task-title">${task.title}</div>
+                    </div>
+                    ${detailsHtml}
+                    ${imageHtml}
+                    <div class="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-brand-border/30">
+                        <span class="text-[10px] text-brand-muted bg-brand-card px-2 py-0.5 rounded border border-brand-border/50 flex items-center gap-1"><i class="fa-solid fa-user"></i> ${task.author}</span>
+                        <div class="flex gap-2">
+                            <button onclick="window.editTask(this, '${part}', '${status}')" class="text-brand-grey hover:text-white transition-colors text-[11px] flex items-center gap-1"><i class="fa-solid fa-pen"></i> 수정</button>
+                            <button onclick="window.deleteTask(this)" class="text-brand-grey hover:text-brand-red transition-colors text-[11px] flex items-center gap-1"><i class="fa-solid fa-trash"></i> 삭제</button>
+                        </div>
+                    </div>
+                `;
+                ul.insertBefore(li, ul.firstChild);
+            } catch(e) { console.warn("Task render error:", e); }
+        };
+
+        window.deleteTask = function(btn) {
+            const li = btn.closest('li');
+            li.style.opacity = '0';
+            li.style.transform = 'scale(0.95)';
+            setTimeout(() => { li.remove(); }, 200);
+        };
+
+        window.editTask = function(btn, part, status) {
+            const li = btn.closest('li');
+            const title = li.querySelector('.task-title') ? li.querySelector('.task-title').innerText : '';
+            const details = Array.from(li.querySelectorAll('.detail-text')).map(el => el.innerText).join('\n');
+            const imageEl = li.querySelector('.task-image');
+            
+            document.getElementById(`${part}-${status}-title`).value = title;
+            document.getElementById(`${part}-${status}-detail`).value = details;
+            
+            if(imageEl) {
+                const preview = document.getElementById(`${part}-${status}-preview`);
+                preview.src = imageEl.src; preview.classList.remove('hidden');
+            }
+            li.remove();
+            document.getElementById(`${part}-${status}-title`).focus();
+        };
+
+        // 3. 기존 데이터 강제 주입
+        window.initDashboard = function() {
+            try {
+                window.renderTask('tech', 'done', { title: "차량번호인식 카메라 설치 및 현장 테스트 완료", details: ["차량 인식 데이터 수집 시작 - 상세 정보 수집 방안 검토 중", "자동차 번호 수집에 대한 법적 리스크 검토 및 무단 수집 시 활용도 정리 진행"], author: "테크팀" });
+                window.renderTask('tech', 'done', { title: "아이폰 앱 충전금 환불 오류 개선 완료", details: ["9월 1일부터 환불 정상화 예정", "세제 주문 관련 문자 발송 오류 확인 후 개선 조치 완료"], author: "테크팀" });
+                window.renderTask('tech', 'todo', { title: "오토패스 키오스크 및 앱 개발 착수", details: ["신규 키오스크 모니터 32인치 제작 진행", "현장 테스트를 통한 스크린 높이, 결제기/바코드 인식기 위치 확정", "QR 인식기 2개 설치 고려 중 (SUV 및 고장 대응)"], author: "테크팀" });
+
+                window.renderTask('mkt', 'done', { title: "하반기 마케팅 대행사 RFP 배포 마감", details: ["인스타그램 및 하반기 마케팅 대행사 RFP 구성 및 배포 (모집 마감 ~8/31)"], author: "마케팅팀" });
+                window.renderTask('mkt', 'todo', { title: "신규 다회권 정기구독 상품 오픈 (9/1)", details: ["다회권 정기구독 금일 마감 및 신규 상품 9/1 오픈", "기존 정기구독 (8/30 기준): 109명 신청, 57명 유지 (유지율 52.3%)"], author: "마케팅팀" });
+                
+                window.renderTask('des', 'done', { title: "신규 가맹점 간판 및 파사드 디자인", details: ["부산사직점 간판 및 파사드 설치 완료 (8/24)", "안산새솔점 시안 및 일정 확정 (9/7)"], author: "디자인팀" });
+                window.renderTask('des', 'todo', { title: "본사 차량 랩핑 2차 시안 구성", details: ["시공 가능 업체 서치 완료 (모토스티커, 대당 150만원)", "2차 시안 구성안 마련 중"], author: "디자인팀" });
+
+                window.renderTask('ch', 'done', { title: "브랜드 공식 유튜브 대행 Ep.2 촬영 완료", details: ["외주 대행사 협업 촬영 무사 종료"], author: "콘텐츠팀" });
+                window.renderTask('ch', 'todo', { title: "아이돌 '투어스(TWS)' 콜라보 촬영 현장 지원", details: ["9/2(수) 오후 8시~11시 용산이촌점 촬영 예정 및 현장 통제"], author: "콘텐츠팀" });
+            } catch(e) { console.warn("Init data error:", e); }
+        };
+
+        // 4. 날짜 자동 업데이트 엔진
+        window.updateCurrentDateDisplay = function() {
+            try {
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = today.getMonth() + 1;
+                const date = today.getDate();
+                
+                const firstDayOfMonth = new Date(year, today.getMonth(), 1);
+                const firstDayOfWeek = firstDayOfMonth.getDay();
+                
+                const offsetDate = date + firstDayOfWeek - 1; 
+                let weekNumber = Math.floor(offsetDate / 7) + 1;
+                
+                if (weekNumber === 0) weekNumber = 1;
+
+                const dateString = `${year}년 ${month}월 ${weekNumber}주차 보고`;
+                const displayEl = document.getElementById('current-date-display');
+                if(displayEl) {
+                    displayEl.innerText = dateString;
+                    displayEl.style.color = '#34d399'; // 성공적인 로딩(초록색)
+                }
+            } catch(e) { 
+                console.warn("Date logic error:", e); 
+                document.getElementById('current-date-display').innerText = "2026년 9월 1주차 보고"; // 완벽한 백업
+            }
+        };
+
+        // 이미지 및 폼 처리
+        window.resizeImage = function(file, callback) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const MAX_WIDTH = 800; const MAX_HEIGHT = 800;
+                    let width = img.width; let height = img.height;
+                    if (width > height) { if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; } } 
+                    else { if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; } }
+                    canvas.width = width; canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    callback(canvas.toDataURL('image/jpeg', 0.8));
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        window.previewImage = function(input, prefix) {
+            if (input.files && input.files[0]) {
+                const preview = document.getElementById(`${prefix}-preview`);
+                window.resizeImage(input.files[0], (dataUrl) => {
+                    preview.src = dataUrl;
+                    preview.classList.remove('hidden');
+                });
+            }
+        };
+
+        window.addTask = function(part, status) {
+            const titleInput = document.getElementById(`${part}-${status}-title`);
+            const detailInput = document.getElementById(`${part}-${status}-detail`);
+            const imgInput = document.getElementById(`${part}-${status}-img`);
+            const preview = document.getElementById(`${part}-${status}-preview`);
+            
+            const title = titleInput.value.trim();
+            const detailText = detailInput.value.trim();
+            const details = detailText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+            
+            let imageData = null;
+            if(!preview.classList.contains('hidden') && preview.src) imageData = preview.src;
+
+            if (!title && !detailText && !imageData) return;
+
+            window.renderTask(part, status, { title: title || '첨부 이미지', details: details, author: window.currentUser, image: imageData });
+            
+            titleInput.value = ''; detailInput.value = '';
+            imgInput.value = ''; preview.src = ''; preview.classList.add('hidden');
+        };
+
+        window.addNewTab = function() {
+            window.showCustomPrompt("추가할 탭의 이름을 입력하세요", "", (tabName) => {
+                const tabContainer = document.getElementById('tab-container');
+                const newTab = document.createElement('button');
+                newTab.className = "bg-transparent text-brand-grey hover:text-white hover:bg-brand-card/50 px-6 py-3 rounded-t-xl font-medium transition-colors flex items-center gap-2 whitespace-nowrap";
+                newTab.innerHTML = `<i class="fa-solid fa-chart-pie"></i> ${tabName}`;
+                newTab.onclick = function() {
+                    document.querySelectorAll('#tab-container button').forEach(b => {
+                        if(b.id !== 'add-tab-btn') {
+                            b.classList.remove('bg-brand-card', 'text-white', 'font-bold', 'border-t', 'border-l', 'border-r', 'border-brand-border');
+                            b.classList.add('bg-transparent', 'text-brand-grey');
+                        }
+                    });
+                    this.classList.remove('bg-transparent', 'text-brand-grey');
+                    this.classList.add('bg-brand-card', 'text-white', 'font-bold', 'border-t', 'border-l', 'border-r', 'border-brand-border');
+                    window.showToast(`'${tabName}' 탭으로 전환되었습니다.`);
+                };
+                tabContainer.insertBefore(newTab, document.getElementById('add-tab-btn'));
+                window.showToast(`'${tabName}' 탭이 생성되었습니다.`);
+            });
+        };
+
+        window.saveAppData = function() {
+            const getVal = id => Number(document.getElementById(id).value) || 0;
+            const mau = getVal('app-input-mau');
+            const usage = getVal('app-input-usage');
+            const usageMom = getVal('app-input-usage-mom');
+            const usageYoy = getVal('app-input-usage-yoy');
+            const users = getVal('app-input-users');
+            const mkt = getVal('app-input-marketing');
+
+            if (mau > 0) {
+                document.getElementById('val-app-mau').innerText = mau.toLocaleString();
+                const diffMau = mau - window.appDB.baseline.mau;
+                document.getElementById('diff-mau-mom').innerHTML = diffMau > 0 ? `<span class="text-brand-lightred">+${diffMau.toLocaleString()}명</span>` : (diffMau < 0 ? `<span class="text-blue-500">${diffMau.toLocaleString()}명</span>` : '-');
+            }
+            if (usage > 0) {
+                document.getElementById('val-app-usage-rate').innerText = usage.toFixed(1);
+                const calcDiff = (curr, past) => past ? ((curr - past).toFixed(1) > 0 ? `<span class="text-brand-lightred">▲ ${(curr-past).toFixed(1)}%p</span>` : `<span class="text-blue-500">▼ ${Math.abs(curr-past).toFixed(1)}%p</span>`) : '-';
+                document.getElementById('diff-usage-mom').innerHTML = calcDiff(usage, usageMom);
+                document.getElementById('diff-usage-yoy').innerHTML = calcDiff(usage, usageYoy);
+            }
+            if (users > 0) {
+                document.getElementById('val-app-users').innerText = users.toLocaleString();
+                const diffUsers = users - window.appDB.baseline.users;
+                document.getElementById('diff-app-users').innerHTML = diffUsers > 0 ? `<span class="text-brand-lightred">+${diffUsers.toLocaleString()}명</span>` : '-';
+            }
+            if (mkt > 0 && users > 0) {
+                document.getElementById('val-app-marketing').innerText = mkt.toLocaleString();
+                document.getElementById('pct-app-marketing').innerText = `${((mkt / users) * 100).toFixed(1)}%`;
+            }
+            window.showToast("앱 지표가 갱신되었습니다.");
+            window.closeAppInputModal();
+        };
+
+        window.triggerUpload = function(type) { document.getElementById(`upload-${type}`).click(); };
+        window.processMasterExcel = function(event) {
+            const file = event.target.files[0]; if (!file) return;
+            document.getElementById('loading-overlay').classList.remove('hidden');
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {header: 1, defval: ""});
+                    
+                    let headerIdx = -1;
+                    for(let i=0; i<Math.min(rows.length, 30); i++) {
+                        if(rows[i] && rows[i].some(c => String(c).includes('연월') || String(c).includes('월별'))) { headerIdx = i; break; }
+                    }
+                    if(headerIdx !== -1) {
+                        const headers = rows[headerIdx].map(h => String(h).replace(/\s/g, ''));
+                        const idxMonth = headers.findIndex(h => h.includes('연월') || h.includes('월별'));
+                        const idxMau = headers.findIndex(h => h.toUpperCase().includes('MAU'));
+                        const idxUsage = headers.findIndex(h => h.includes('사용률'));
+                        const idxUsers = headers.findIndex(h => h.includes('누적회원'));
+                        const idxMkt = headers.findIndex(h => h.includes('마케팅'));
+                        
+                        let idxTotal = -1, idxAppPay = -1, idxCard = -1, idxCash = -1;
+                        headers.forEach((h, idx) => {
+                            if(h.includes('총매출')) idxTotal = idx;
+                            else if(h.includes('앱') && h.includes('페이')) idxAppPay = idx;
+                            else if(h.includes('카드')) idxCard = idx;
+                            else if(h.includes('현금')) idxCash = idx;
+                        });
+
+                        let appCnt = 0, salesCnt = 0;
+                        for(let i=headerIdx+1; i<rows.length; i++) {
+                            const row = rows[i]; if(!row || !row[idxMonth]) continue;
+                            const mStr = String(row[idxMonth]).replace(/\./g, '-').trim();
+                            if(mStr.length > 0) {
+                                if(idxMau !== -1 || idxUsers !== -1) {
+                                    window.masterAppDB[mStr] = { mau: Number(row[idxMau])||0, usage: Number(row[idxUsage])||0, users: Number(row[idxUsers])||0, marketing: Number(row[idxMkt])||0 };
+                                    appCnt++;
+                                }
+                                if(idxTotal !== -1 || idxCard !== -1) {
+                                    window.masterSalesDB[mStr] = { total: Number(row[idxTotal])||0, app: Number(row[idxAppPay])||0, card: Number(row[idxCard])||0, cash: Number(row[idxCash])||0 };
+                                    salesCnt++;
+                                }
+                            }
+                        }
+                        window.showToast(`DB 통합 저장 완료 (앱 ${appCnt}개월, 매출 ${salesCnt}개월)`);
+                    } else window.showToast("연월 기준을 찾을 수 없습니다.");
+                } catch(error) { window.showToast("파일 형식이 잘못되었습니다."); }
+                finally { document.getElementById('loading-overlay').classList.add('hidden'); event.target.value = ''; }
+            }; reader.readAsArrayBuffer(file);
+        };
+        window.autofillFromMasterDB = function() {
+            const mStr = document.getElementById('app-input-month').value; if(!mStr) return;
+            const [y, m] = mStr.split('-');
+            const pDate = new Date(y, Number(m)-2, 1);
+            const pStr = pDate.getFullYear() + "-" + String(pDate.getMonth()+1).padStart(2, '0');
+            const pyStr = (Number(y)-1) + "-" + m;
+            if(window.masterAppDB[pStr]) {
+                window.appDB.baseline.mau = window.masterAppDB[pStr].mau; window.appDB.baseline.users = window.masterAppDB[pStr].users;
+                document.getElementById('app-input-usage-mom').value = window.masterAppDB[pStr].usage;
+                window.showToast("전월(MoM) 베이스라인 세팅 완료");
+            }
+            if(window.masterAppDB[pyStr]) { document.getElementById('app-input-usage-yoy').value = window.masterAppDB[pyStr].usage; }
+        };
+        window.processExcel = function(event, type) {
+            const file = event.target.files[0]; if (!file) return;
+            document.getElementById('loading-overlay').classList.remove('hidden');
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {header: 1, defval: ""});
+
+                    let headerRowIdx = -1; let headers = [];
+                    for(let i = 0; i < Math.min(rows.length, 30); i++) {
+                        if(!rows[i] || rows[i].length === 0) continue;
+                        const rowStr = rows[i].map(cell => String(cell || '').replace(/\s/g, '').toLowerCase()).join('');
+                        if(rowStr.includes('카드') || rowStr.includes('앱') || rowStr.includes('결제') || rowStr.includes('금액')) {
+                            headerRowIdx = i; headers = rows[i].map(h => String(h || '').replace(/\s/g, '').toLowerCase()); break;
+                        }
+                    }
+                    if(headerRowIdx !== -1) {
+                        const getNum = (val) => { if (!val) return 0; const cleaned = String(val).replace(/,/g, '').replace(/원/g, '').trim(); return Number(cleaned) || 0; };
+                        let idxApp = [], idxCard = [], idxEtc = [];
+                        headers.forEach((h, idx) => {
+                            if (h.includes('앱') || h.includes('app') || h.includes('페이')) idxApp.push(idx);
+                            else if (h.includes('카드') || h.includes('신용')) idxCard.push(idx);
+                            else if (h.includes('현금') || h.includes('상품권') || h.includes('기타')) idxEtc.push(idx);
+                        });
+
+                        let sumCard = 0, sumApp = 0, sumEtc = 0;
+                        for(let i = headerRowIdx + 1; i < rows.length; i++) {
+                            const row = rows[i]; if(!row || row.length === 0) continue;
+                            const checkSumRow = row.slice(0, 3).map(c => String(c || '').replace(/\s/g, '')).join('');
+                            if(checkSumRow.includes('합계') || checkSumRow.includes('총계') || checkSumRow.includes('전체')) break;
+                            let rC = 0, rA = 0, rE = 0;
+                            idxCard.forEach(idx => rC += getNum(row[idx])); idxApp.forEach(idx => rA += getNum(row[idx])); idxEtc.forEach(idx => rE += getNum(row[idx]));
+                            sumCard += rC; sumApp += rA; sumEtc += rE;
+                        }
+                        
+                        const sumTotal = sumCard + sumApp + sumEtc;
+                        const updateData = {
+                            [`${type}_total`]: Math.round(sumTotal / 10000), [`${type}_card`]: Math.round(sumCard / 10000),
+                            [`${type}_app`]: Math.round(sumApp / 10000), [`${type}_etc`]: Math.round(sumEtc / 10000)
+                        };
+
+                        const animateValue = (id, start, end) => {
+                            const el = document.getElementById(id); if(!el) return;
+                            let startT = null;
+                            const step = (t) => {
+                                if (!startT) startT = t; const prog = Math.min((t - startT) / 1000, 1);
+                                el.innerText = Math.floor(prog * (end - start) + start).toLocaleString();
+                                if (prog < 1) window.requestAnimationFrame(step);
+                            }; window.requestAnimationFrame(step);
+                        };
+
+                        animateValue(`val-${type}-total`, 0, updateData[`${type}_total`]); animateValue(`val-${type}-card`, 0, updateData[`${type}_card`]);
+                        animateValue(`val-${type}-app`, 0, updateData[`${type}_app`]); animateValue(`val-${type}-etc`, 0, updateData[`${type}_etc`]);
+
+                        if(sumTotal > 0) {
+                            const pC = ((sumCard / sumTotal)*100).toFixed(1); const pA = ((sumApp / sumTotal)*100).toFixed(1); const pE = ((sumEtc / sumTotal)*100).toFixed(1);
+                            document.getElementById(`pct-${type}-card`).innerText = pC + '%'; document.getElementById(`bar-${type}-card`).style.width = pC + '%';
+                            document.getElementById(`pct-${type}-app`).innerText = pA + '%'; document.getElementById(`bar-${type}-app`).style.width = pA + '%';
+                            document.getElementById(`pct-${type}-etc`).innerText = pE + '%'; document.getElementById(`bar-${type}-etc`).style.width = pE + '%';
+                        }
+                        window.showToast(`매출 분석 완료: 총 ${updateData[`${type}_total`].toLocaleString()}만원 적용`);
+                    } else window.showToast("매출 엑셀 양식을 찾을 수 없습니다.");
+                } catch(error) { window.showToast("엑셀 파일 로딩 오류"); }
+                finally { document.getElementById('loading-overlay').classList.add('hidden'); event.target.value = ''; }
+            }; reader.readAsArrayBuffer(file);
+        };
+
+        window.saveWeeklyReport = function() {
+            window.showCustomPrompt("저장할 주간보고서의 제목을 입력하세요:", document.getElementById('current-date-display').innerText, (dateStr) => {
+                document.getElementById('loading-overlay').classList.remove('hidden');
+                const getVal = (id) => document.getElementById(id) ? document.getElementById(id).innerText : '0';
+                const getTasks = (part, status) => {
+                    const list = document.getElementById(`${part}-${status}-list`);
+                    if(!list) return [];
+                    return Array.from(list.children).map(li => ({
+                        title: li.querySelector('.task-title') ? li.querySelector('.task-title').innerText : '',
+                        author: li.querySelector('.text-brand-muted') ? li.querySelector('.text-brand-muted').innerText.trim().replace('관리자', '') : '관리자',
+                        details: Array.from(li.querySelectorAll('.detail-text')).map(el => el.innerText),
+                        image: li.querySelector('.task-image') ? li.querySelector('.task-image').src : null
+                    }));
+                };
+
+                const reportData = {
+                    title: dateStr, timestamp: Date.now(),
+                    metrics: {
+                        monthly: { total: getVal('val-monthly-total'), card: getVal('val-monthly-card'), app: getVal('val-monthly-app'), etc: getVal('val-monthly-etc') },
+                        weekly: { total: getVal('val-weekly-total'), card: getVal('val-weekly-card'), app: getVal('val-weekly-app'), etc: getVal('val-weekly-etc') },
+                        app: { mau: getVal('val-app-mau'), usage: getVal('val-app-usage-rate'), users: getVal('val-app-users'), marketing: getVal('val-app-marketing') }
+                    },
+                    tasks: {
+                        tech_done: getTasks('tech', 'done'), tech_todo: getTasks('tech', 'todo'), mkt_done: getTasks('mkt', 'done'), mkt_todo: getTasks('mkt', 'todo'),
+                        des_done: getTasks('des', 'done'), des_todo: getTasks('des', 'todo'), ch_done: getTasks('ch', 'done'), ch_todo: getTasks('ch', 'todo'),
+                        etc_done: getTasks('etc', 'done'), etc_todo: getTasks('etc', 'todo')
+                    }
+                };
+                
+                window.localHistoryDB.push(reportData);
+                window.showToast(`[${dateStr}] 보고서 저장 완료!`);
+                document.getElementById('loading-overlay').classList.add('hidden');
+            });
+        };
+
+        window.openHistoryModal = function() {
+            document.getElementById('loading-overlay').classList.remove('hidden');
+            const reports = window.localHistoryDB;
+            document.getElementById('loading-overlay').classList.add('hidden');
+
+            const listEl = document.getElementById('history-list');
+            listEl.innerHTML = '';
+
+            if(reports.length === 0) {
+                listEl.innerHTML = '<p class="text-brand-grey text-center py-4">저장된 과거 보고서가 없습니다.</p>';
+            } else {
+                reports.forEach(r => {
+                    const d = new Date(r.timestamp);
+                    const dateStr = `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+                    const li = document.createElement('li');
+                    li.className = "flex justify-between items-center p-3 bg-brand-bg/50 border border-brand-border rounded-lg hover:border-brand-red cursor-pointer transition-colors";
+                    li.innerHTML = `
+                        <div>
+                            <div class="text-white font-bold">${r.title}</div>
+                            <div class="text-[11px] text-brand-grey">저장일시: ${dateStr}</div>
+                        </div>
+                        <button class="bg-brand-card hover:bg-brand-red text-white text-xs px-3 py-1.5 rounded transition-colors shadow-sm"><i class="fa-solid fa-folder-open"></i> 불러오기</button>
+                    `;
+                    li.onclick = () => window.loadReportToDashboard(r);
+                    listEl.appendChild(li);
+                });
+            }
+            document.getElementById('history-modal').classList.remove('hidden');
+        };
+
+        window.closeHistoryModal = function() { document.getElementById('history-modal').classList.add('hidden'); };
+
+        window.loadReportToDashboard = function(report) {
+            document.getElementById('current-date-display').innerText = report.title;
+            const m = report.metrics;
+            document.getElementById('val-monthly-total').innerText = m.monthly.total; document.getElementById('val-monthly-card').innerText = m.monthly.card;
+            document.getElementById('val-monthly-app').innerText = m.monthly.app; document.getElementById('val-monthly-etc').innerText = m.monthly.etc;
+            document.getElementById('val-weekly-total').innerText = m.weekly.total; document.getElementById('val-weekly-card').innerText = m.weekly.card;
+            document.getElementById('val-weekly-app').innerText = m.weekly.app; document.getElementById('val-weekly-etc').innerText = m.weekly.etc;
+            document.getElementById('val-app-mau').innerText = m.app.mau; document.getElementById('val-app-usage-rate').innerText = m.app.usage;
+            document.getElementById('val-app-users').innerText = m.app.users; document.getElementById('val-app-marketing').innerText = m.app.marketing;
+
+            const parts = ['tech', 'mkt', 'des', 'ch', 'etc']; const statuses = ['done', 'todo'];
+            parts.forEach(p => statuses.forEach(s => { const ul = document.getElementById(`${p}-${s}-list`); if(ul) ul.innerHTML = ''; }));
+            parts.forEach(p => statuses.forEach(s => {
+                const tasks = report.tasks[`${p}_${s}`] || [];
+                tasks.slice().reverse().forEach(t => window.renderTask(p, s, t));
+            }));
+            window.closeHistoryModal(); window.showToast(`[${report.title}] 보고서를 불러왔습니다.`);
+        };
+
+        // ============================================================================
+        // 🚀 가장 핵심적인 강제 동기화 엔진 🚀
+        // 구글의 이벤트 리스너(DOMContentLoaded) 무시 버그를 피하기 위해 스크립트 도달 즉시 실행합니다.
+        // ============================================================================
+        try {
+            window.updateCurrentDateDisplay();
+            window.renderAllForms();
+            window.initDashboard();
+            
+            // Sortable 초기화 (만약 외부 CDN 차단 시 무시하고 넘어감)
+            if(typeof Sortable !== 'undefined') {
+                const opt = { animation: 150, ghostClass: 'sortable-ghost', handle: '.drag-handle' };
+                if (document.getElementById('monthly-grid')) Sortable.create(document.getElementById('monthly-grid'), opt);
+                if (document.getElementById('weekly-grid')) Sortable.create(document.getElementById('weekly-grid'), opt);
+                if (document.getElementById('app-grid')) Sortable.create(document.getElementById('app-grid'), opt);
+            }
+        } catch (error) {
+            console.error("초기화 엔진 오류:", error);
+            // 최악의 경우에도 텍스트로 에러를 알림
+            const displayEl = document.getElementById('current-date-display');
+            if(displayEl) {
+                displayEl.innerText = "안전 모드 로딩됨: " + error.message;
+                displayEl.style.color = "#ff3344";
+            }
+        }
+    </script>
+</body>
+</html>
